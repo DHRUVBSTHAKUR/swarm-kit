@@ -7,12 +7,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
-from litellm import acompletion, completion
+from litellm import acompletion, completion, completion_cost
 from rich.console import Console
 from rich.markup import escape
 
 from .agent import TRANSFER_TOOL, UPDATE_STATE_TOOL, Agent
-from .types import AgentOutput, SwarmResult, ToolCall
+from .types import AgentOutput, SwarmResult, ToolCall, UsageStats
 
 console = Console()
 
@@ -69,8 +69,39 @@ class _RunContext:
     pending_transfer: Optional[str] = None
     uses_instance_history: bool = False
     extra: Dict[str, Any] = field(default_factory=dict)
+    usage: UsageStats = field(default_factory=UsageStats)
 
+def _extract_usage(raw_response: Any) -> UsageStats:
+    """Safely extract token counts and cost from a raw LiteLLM response."""
+    if raw_response is None:
+        return UsageStats()
 
+    # 1. Extract tokens safely
+    prompt_tokens = 0
+    completion_tokens = 0
+    usage = getattr(raw_response, "usage", None)
+    if usage is None and isinstance(raw_response, dict):
+        usage = raw_response.get("usage")
+
+    if usage is not None:
+        prompt_tokens = getattr(usage, "prompt_tokens", None) or (usage.get("prompt_tokens") if isinstance(usage, dict) else 0) or 0
+        completion_tokens = getattr(usage, "completion_tokens", None) or (usage.get("completion_tokens") if isinstance(usage, dict) else 0) or 0
+
+    # 2. Extract cost via LiteLLM
+    cost = 0.0
+    try:
+        calculated_cost = completion_cost(completion_response=raw_response)
+        if calculated_cost is not None:
+            cost = float(calculated_cost)
+    except Exception:
+        cost = 0.0
+
+    return UsageStats(
+        prompt_tokens=int(prompt_tokens),
+        completion_tokens=int(completion_tokens),
+        cost=cost,
+    )
+    
 class Swarm:
     """Orchestrates a group of agents in unsupervised or supervised mode.
 
@@ -276,15 +307,22 @@ class Swarm:
             turns=ctx.turns,
             plan=ctx.plan,
             session_id=ctx.session_id,
+            usage=ctx.usage,
         )
 
     def _record_output(self, ctx: _RunContext, agent: Agent, output: AgentOutput) -> None:
         ctx.turns += 1
         ctx.last_agent = agent.name
         ctx.history.append(output.to_message())
+        call_usage = _extract_usage(output.raw_response)
+    
+        ctx.usage.prompt_tokens += call_usage.prompt_tokens
+        ctx.usage.completion_tokens += call_usage.completion_tokens
+        ctx.usage.cost += call_usage.cost
+    
         if output.content:
             ctx.final_output = output.content
-            self._save_log(agent.name, "Response", output.content)
+            self._save_log(agent.name, "Response", output.content, usage=call_usage.model_dump())
 
     def _handle_builtin(self, ctx: _RunContext, agent: Agent, call: ToolCall, allow_transfer: bool) -> Optional[str]:
         """Handle built-in tools and error cases. Returns ``None`` if a user function must run."""

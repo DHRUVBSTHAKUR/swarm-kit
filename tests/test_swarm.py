@@ -310,3 +310,30 @@ async def test_execute_plan_async_uses_async_planner_and_saves(llm):
     result = await swarm.execute_plan_async("refund", session_id="job1")
     assert result.final_output == "done"
     assert "job1" in saved
+
+def test_tracks_token_usage_and_response_events(llm, tmp_path):
+    events = []
+    log = tmp_path / "run.jsonl"
+    swarm = make_swarm(log_file=str(log), event_handler=events.append)
+
+    # Queue two turns with token usage
+    llm.queue(
+        make_response("First answer", usage={"prompt_tokens": 20, "completion_tokens": 10}),
+        make_response("Second answer", usage={"prompt_tokens": 15, "completion_tokens": 5}),
+    )
+
+    result1 = swarm.execute("Triage", "Query 1")
+    assert result1.usage.prompt_tokens == 20
+    assert result1.usage.completion_tokens == 10
+
+    result2 = swarm.execute("Triage", "Query 2")
+    assert result2.usage.prompt_tokens == 15
+    assert result2.usage.completion_tokens == 5
+
+    # Verify per-call usage on Response event
+    response_events = [e for e in events if e["action"] == "Response"]
+    assert len(response_events) == 2
+    assert response_events[0]["usage"]["prompt_tokens"] == 20
+    assert response_events[0]["usage"]["completion_tokens"] == 10
+    assert response_events[1]["usage"]["prompt_tokens"] == 15
+    assert response_events[1]["usage"]["completion_tokens"] == 5
