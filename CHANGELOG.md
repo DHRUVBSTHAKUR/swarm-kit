@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format is based on
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+- feat: report token usage and cost on SwarmResult (#8)
 
 ### Added
 - `Swarm(run_sync_tools_in_thread=True)`: opt-in support for running synchronous custom tools in

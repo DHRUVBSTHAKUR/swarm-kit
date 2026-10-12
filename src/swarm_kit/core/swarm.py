@@ -84,8 +84,12 @@ def _extract_usage(raw_response: Any) -> UsageStats:
         usage = raw_response.get("usage")
 
     if usage is not None:
-        prompt_tokens = getattr(usage, "prompt_tokens", None) or (usage.get("prompt_tokens") if isinstance(usage, dict) else 0) or 0
-        completion_tokens = getattr(usage, "completion_tokens", None) or (usage.get("completion_tokens") if isinstance(usage, dict) else 0) or 0
+        if isinstance(usage, dict):
+            prompt_tokens = usage.get("prompt_tokens") or 0
+            completion_tokens = usage.get("completion_tokens") or 0
+        else:
+            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+            completion_tokens = getattr(usage, "completion_tokens", 0) or 0
 
     # 2. Extract cost via LiteLLM
     cost = 0.0
@@ -101,7 +105,7 @@ def _extract_usage(raw_response: Any) -> UsageStats:
         completion_tokens=int(completion_tokens),
         cost=cost,
     )
-    
+
 class Swarm:
     """Orchestrates a group of agents in unsupervised or supervised mode.
 
@@ -315,11 +319,11 @@ class Swarm:
         ctx.last_agent = agent.name
         ctx.history.append(output.to_message())
         call_usage = _extract_usage(output.raw_response)
-    
+
         ctx.usage.prompt_tokens += call_usage.prompt_tokens
         ctx.usage.completion_tokens += call_usage.completion_tokens
         ctx.usage.cost += call_usage.cost
-    
+
         if output.content:
             ctx.final_output = output.content
             self._save_log(agent.name, "Response", output.content, usage=call_usage.model_dump())
