@@ -8,12 +8,21 @@ All notable changes to this project are documented here. The format is based on
 - feat: report token usage and cost on SwarmResult (#8)
 
 ### Added
+- Human-in-the-loop tool approval: `Agent(require_approval={"process_refund"})` and
+  `Swarm(approval_handler=...)`. The handler receives an `ApprovalRequest` (a copy of the
+  arguments, plus `agent_name`, `tool_name`, `call_id`, `session_id`) and returns `True` to
+  run the tool, `False` to reject, or a string reason (`Error: rejected by user: <reason>`).
+  Each call is decided on its own. Creating a Swarm with `require_approval` but no handler,
+  or with a name that is not one of that agent's tools, raises `ValueError`.
 - `Swarm(run_sync_tools_in_thread=True)`: opt-in support for running synchronous custom tools in
   a worker thread (`asyncio.to_thread`) during `execute_async()`/`execute_plan_async()`, so
   blocking tools no longer stall the event loop and concurrent runs can have them in flight at
   the same time. `async def` tools are still awaited on the event loop.
 
 ### Changed
+- `Agent(require_approval=...)` accepts a single tool name as a string (so
+  `require_approval="process_refund"` gates that one tool). Other non-collection types
+  raise `TypeError` naming the bad type.
 - `update_state` decodes JSON-encoded string values, supporting numbers, booleans,
   lists, objects and null. Non-JSON text, including `NaN`, `Infinity` and
   `-Infinity`, remains unchanged.
