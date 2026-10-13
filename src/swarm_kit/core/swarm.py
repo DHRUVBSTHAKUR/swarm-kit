@@ -338,18 +338,20 @@ class Swarm:
         )
 
     def _record_output(self, ctx: _RunContext, agent: Agent, output: AgentOutput) -> None:
-        ctx.turns += 1
-        ctx.last_agent = agent.name
-        ctx.history.append(output.to_message())
-        call_usage = _extract_usage(output.raw_response)
+            ctx.turns += 1
+            ctx.last_agent = agent.name
+            ctx.history.append(output.to_message())
+            call_usage = _extract_usage(output.raw_response)
 
-        ctx.usage.prompt_tokens += call_usage.prompt_tokens
-        ctx.usage.completion_tokens += call_usage.completion_tokens
-        ctx.usage.cost += call_usage.cost
+            ctx.usage.prompt_tokens += call_usage.prompt_tokens
+            ctx.usage.completion_tokens += call_usage.completion_tokens
+            ctx.usage.cost += call_usage.cost
 
-        if output.content:
-            ctx.final_output = output.content
-            self._save_log(agent.name, "Response", output.content, usage=call_usage.model_dump())
+            if output.content:
+                ctx.final_output = output.content
+
+            # Always emit Response event to capture usage, even if content is empty
+            self._save_log(agent.name, "Response", output.content or "", usage=call_usage.model_dump())
 
     def _handle_builtin(self, ctx: _RunContext, agent: Agent, call: ToolCall, allow_transfer: bool) -> Optional[str]:
         """Handle built-in tools and error cases. Returns ``None`` if a user function must run."""
@@ -493,14 +495,14 @@ class Swarm:
             raise ValueError("Planner JSON must contain a 'plan' array.")
         return [step for step in plan if isinstance(step, dict)]
 
-    def _generate_plan(self, user_input: str) -> List[Dict[str, Any]]:
-        """Synchronously ask the planner model for a plan."""
-        response = completion(**self._planner_kwargs(self._planner_messages(user_input)))
-        return self._parse_plan(response.choices[0].message.content)
+    def _generate_plan(self, user_input: str) -> Tuple[List[Dict[str, Any]], UsageStats]:
+            """Synchronously ask the planner model for a plan."""
+            response = completion(**self._planner_kwargs(self._planner_messages(user_input)))
+            return self._parse_plan(response.choices[0].message.content), _extract_usage(response)
 
-    async def _generate_plan_async(self, user_input: str) -> List[Dict[str, Any]]:
+    async def _generate_plan_async(self, user_input: str) -> Tuple[List[Dict[str, Any]], UsageStats]:
         response = await acompletion(**self._planner_kwargs(self._planner_messages(user_input)))
-        return self._parse_plan(response.choices[0].message.content)
+        return self._parse_plan(response.choices[0].message.content), _extract_usage(response)
 
     def _run_supervised(self, user_input, state, session_id, history, max_steps_per_task):
         ctx = yield from self._begin(state, session_id, history)
@@ -512,7 +514,10 @@ class Swarm:
             console.print("[bold yellow]🧠 Supervisor is generating a plan...[/bold yellow]")
 
         try:
-            raw_plan = yield _PlanRequest(user_input)
+            raw_plan, plan_usage = yield _PlanRequest(user_input)
+            ctx.usage.prompt_tokens += plan_usage.prompt_tokens
+            ctx.usage.completion_tokens += plan_usage.completion_tokens
+            ctx.usage.cost += plan_usage.cost
         except Exception as e:
             self._save_log("System", "Error", f"Planning failed: {e}")
             raise

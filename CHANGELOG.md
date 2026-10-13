@@ -5,9 +5,9 @@ All notable changes to this project are documented here. The format is based on
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
-- feat: report token usage and cost on SwarmResult (#8)
 
 ### Added
+- `SwarmResult` now reports total token `usage` and `cost` (#8).
 - Human-in-the-loop tool approval: `Agent(require_approval={"process_refund"})` and
   `Swarm(approval_handler=...)`. The handler receives an `ApprovalRequest` (a copy of the
   arguments, plus `agent_name`, `tool_name`, `call_id`, `session_id`) and returns `True` to
